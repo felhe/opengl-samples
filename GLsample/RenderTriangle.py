@@ -1,4 +1,5 @@
 import math
+import os
 
 import numpy as np
 from OpenGL.GL import *
@@ -94,11 +95,11 @@ class RenderTriangle(Render):
         self.shader_program = ShaderProgram()
 
         # vertex shader program
-        with open('shaders/triangle.vert', 'r') as file:
+        with open(os.path.join(os.path.dirname(__file__), 'shaders/triangle.vert'), 'r') as file:
             self.vertex_shader_src = file.read()
 
         # fragment shader program
-        with open('shaders/triangle.frag', 'r') as file:
+        with open(os.path.join(os.path.dirname(__file__), 'shaders/triangle.frag'), 'r') as file:
             self.fragment_shader_src = file.read()
 
     def set_window_size(self, width: int, height: int):
