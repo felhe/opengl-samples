@@ -7,7 +7,6 @@ def main():
     ui_width = 800
     ui_height = 600
 
-    print("hallo")
     if not glfw.init():
         return
     glfw.window_hint(glfw.CONTEXT_VERSION_MAJOR, 3)
@@ -47,6 +46,8 @@ def main():
             renderer.trans_z(1.0)
         if key == glfw.KEY_KP_SUBTRACT:
             renderer.trans_z(-1.0)
+        if key == glfw.KEY_SPACE:
+            renderer.divide_polygons()
 
         renderer.render_camera()
 

@@ -1,5 +1,6 @@
 import math
 import os
+from random import random
 
 import numpy as np
 from OpenGL.GL import *
@@ -50,28 +51,7 @@ class RenderTriangle(Render):
         -z, -x, 0,
     ], dtype=float32)
 
-    color_data = np.array([
-        0.583, 0.771, 0.014, 1.0,
-        0.609, 0.115, 0.436, 1.0,
-        0.327, 0.483, 0.844, 1.0,
-        0.822, 0.569, 0.201, 1.0,
-        0.435, 0.602, 0.223, 1.0,
-        0.310, 0.747, 0.185, 1.0,
-        0.597, 0.770, 0.761, 1.0,
-        0.559, 0.436, 0.730, 1.0,
-        0.359, 0.583, 0.152, 1.0,
-        0.483, 0.596, 0.789, 1.0,
-        0.559, 0.861, 0.639, 1.0,
-        0.195, 0.548, 0.859, 1.0,
-        0.014, 0.184, 0.576, 1.0,
-        0.771, 0.328, 0.970, 1.0,
-        0.406, 0.615, 0.116, 1.0,
-        0.676, 0.977, 0.133, 1.0,
-        0.971, 0.572, 0.833, 1.0,
-        0.140, 0.616, 0.489, 1.0,
-        0.997, 0.513, 0.064, 1.0,
-        0.945, 0.719, 0.592, 1.0
-    ], dtype=float32)
+    color_data = []
 
     def __init__(self):
         self.model_view_matrix = []
@@ -101,6 +81,8 @@ class RenderTriangle(Render):
         # fragment shader program
         with open(os.path.join(os.path.dirname(__file__), 'shaders/triangle.frag'), 'r') as file:
             self.fragment_shader_src = file.read()
+
+        self.generate_color()
 
     def set_window_size(self, width: int, height: int):
         self.width = width
@@ -135,7 +117,8 @@ class RenderTriangle(Render):
         # create coords object
         self.vbo_coords = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo_coords)
-        glBufferData(GL_ARRAY_BUFFER, self.vertex_list.size * self.vertex_list.itemsize, self.vertex_list, GL_STATIC_DRAW)
+        glBufferData(GL_ARRAY_BUFFER, self.vertex_list.size * self.vertex_list.itemsize, self.vertex_list,
+                     GL_STATIC_DRAW)
         glEnableVertexAttribArray(self.vertex_attrib_position)
         glVertexAttribPointer(self.vertex_attrib_position, 3, GL_FLOAT, GL_FALSE, 0, None)
 
@@ -182,9 +165,11 @@ class RenderTriangle(Render):
         self.projection_matrix[5] = (2.0 * self.near_distance) / (top - bottom)
         self.projection_matrix[8] = (right + left) / (right - left)
         self.projection_matrix[9] = (top + bottom) / (top - bottom)
-        self.projection_matrix[10] = -(self.far_distance + self.near_distance) / (self.far_distance - self.near_distance)
+        self.projection_matrix[10] = -(self.far_distance + self.near_distance) / (
+                    self.far_distance - self.near_distance)
         self.projection_matrix[11] = -1.0
-        self.projection_matrix[14] = -2.0 * self.far_distance * self.near_distance / (self.far_distance - self.near_distance)
+        self.projection_matrix[14] = -2.0 * self.far_distance * self.near_distance / (
+                    self.far_distance - self.near_distance)
         glUniformMatrix4fv(self.projection_matrix_id, 1, False, self.projection_matrix)
 
         # setup modelview matrix
@@ -210,7 +195,7 @@ class RenderTriangle(Render):
 
         # render vertex array
         glBindVertexArray(self.vao)
-        glDrawElements(GL_TRIANGLES, 60, GL_UNSIGNED_INT, None)
+        glDrawElements(GL_TRIANGLES, self.index_list.size, GL_UNSIGNED_INT, None)
 
     def rot_x(self, angle: float):
         self.rot_x_value += angle
@@ -220,3 +205,59 @@ class RenderTriangle(Render):
 
     def trans_z(self, z: float):
         self.trans_z_value += z
+
+    def divide_polygons(self):
+        def calculate_mid_vert(vert1, vert2):
+            mid = np.array([(vert1[0] + vert2[0]) / 2, (vert1[1] + vert2[1]) / 2, (vert1[2] + vert2[2]) / 2],
+                            dtype=float32)
+            distance_vert = math.sqrt(vert1[0]*vert1[0] + vert1[1]*vert1[1] + vert1[2]*vert1[2])
+            distance_mid = math.sqrt(mid[0]*mid[0] + mid[1]*mid[1] + mid[2]*mid[2])
+            mid = mid * distance_vert / distance_mid
+            return mid
+
+        polygons = [self.index_list[i:i + 3] for i in range(0, len(self.index_list), 3)]
+        vertices = [self.vertex_list[i:i + 3] for i in range(0, len(self.vertex_list), 3)]
+        self.index_list = np.array([], dtype=int32)
+
+        for polygon in polygons:
+            vert_index1 = polygon[0]
+            vert_index2 = polygon[1]
+            vert_index3 = polygon[2]
+            vert1 = vertices[vert_index1]
+            vert2 = vertices[vert_index2]
+            vert3 = vertices[vert_index3]
+            mid1 = calculate_mid_vert(vert1, vert2)
+            mid2 = calculate_mid_vert(vert2, vert3)
+            mid3 = calculate_mid_vert(vert1, vert3)
+            mid_index1 = len(self.vertex_list)//3
+            mid_index2 = len(self.vertex_list)//3 + 1
+            mid_index3 = len(self.vertex_list)//3 + 2
+            self.vertex_list = np.concatenate((self.vertex_list, mid1, mid2, mid3))
+            self.index_list = np.concatenate((
+                self.index_list,
+                np.array([vert_index1, mid_index1, mid_index3], dtype=int32),
+                np.array([mid_index1, vert_index2, mid_index2], dtype=int32),
+                np.array([mid_index1, vert_index2, mid_index2], dtype=int32),
+                np.array([mid_index2, vert_index3, mid_index3], dtype=int32),
+                np.array([mid_index1, mid_index2, mid_index3], dtype=int32)
+            ))
+
+        self.generate_color()
+
+        # create buffer object for indices
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.vbo_indices)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, self.index_list.size * self.index_list.itemsize, self.index_list,
+                     GL_STATIC_DRAW)
+
+        # create coords object
+        glBindBuffer(GL_ARRAY_BUFFER, self.vbo_coords)
+        glBufferData(GL_ARRAY_BUFFER, self.vertex_list.size * self.vertex_list.itemsize, self.vertex_list,
+                     GL_STATIC_DRAW)
+
+        glBindBuffer(GL_ARRAY_BUFFER, self.fbo)
+        glBufferData(GL_ARRAY_BUFFER, self.color_data.size * self.color_data.itemsize, self.color_data, GL_STATIC_DRAW)
+
+    def generate_color(self):
+        num_polygons: int = len(self.index_list) // 3
+        self.color_data = np.array([random() for _ in range(num_polygons * 4)], dtype=float32)
+        self.color_data[3::4] = [1.0] * num_polygons
