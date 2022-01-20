@@ -4,6 +4,7 @@ from random import random
 
 import numpy as np
 from OpenGL.GL import *
+from PIL import Image
 from numpy import float32, int32
 
 from Render import Render
@@ -53,12 +54,17 @@ class RenderTriangle(Render):
 
     color_data = []
 
+    texture_coords = []
+
     def __init__(self):
+        self.texture_attrib_position = 0
+        self.texture_buffer = 0
         self.model_view_matrix = []
         self.projection_matrix = []
         self.fbo = 0
         self.vao = 0
         self.vbo_indices = 0
+        self.texture = 0
         self.vbo_coords = 0
         self.color_attrib_position = 0
         self.vertex_attrib_position = 0
@@ -83,6 +89,7 @@ class RenderTriangle(Render):
             self.fragment_shader_src = file.read()
 
         self.generate_color()
+        self.calculate_tex_coords()
 
     def set_window_size(self, width: int, height: int):
         self.width = width
@@ -99,11 +106,11 @@ class RenderTriangle(Render):
         # determine bindings with shader
         self.vertex_attrib_position = glGetAttribLocation(self.shader_program.get_program_id(), "in_Position")
         self.color_attrib_position = glGetAttribLocation(self.shader_program.get_program_id(), "color")
+        self.texture_attrib_position = glGetAttribLocation(self.shader_program.get_program_id(), "texture")
         self.projection_matrix_id = glGetUniformLocation(self.shader_program.get_program_id(), "cProjectionMatrix")
         self.model_view_matrix_id = glGetUniformLocation(self.shader_program.get_program_id(), "cModelviewMatrix")
 
         # create object
-
         # create vertex array object
         self.vao = glGenVertexArrays(1)
         glBindVertexArray(self.vao)
@@ -125,9 +132,17 @@ class RenderTriangle(Render):
         # color
         self.fbo = glGenBuffers(1)
         glBindBuffer(GL_ARRAY_BUFFER, self.fbo)
-        glBufferData(GL_ARRAY_BUFFER, ArrayDatatype.arrayByteCount(self.color_data), self.color_data, GL_STATIC_DRAW)
+        glBufferData(GL_ARRAY_BUFFER, self.color_data.size * self.color_data.itemsize, self.color_data, GL_STATIC_DRAW)
         glEnableVertexAttribArray(self.color_attrib_position)
         glVertexAttribPointer(self.color_attrib_position, 4, GL_FLOAT, GL_FALSE, 0, None)
+
+        self.load_and_set_texture()
+        self.texture_buffer = glGenBuffers(1)
+        glBindBuffer(GL_ARRAY_BUFFER, self.texture_buffer)
+        glBufferData(GL_ARRAY_BUFFER, self.texture_coords.size * self.texture_coords.itemsize, self.texture_coords,
+                     GL_STATIC_DRAW)
+        glEnableVertexAttribArray(self.texture_attrib_position)
+        glVertexAttribPointer(self.texture_attrib_position, 2, GL_FLOAT, GL_FALSE, 0, None)
 
         # init GL
         # set background color to black
@@ -166,10 +181,10 @@ class RenderTriangle(Render):
         self.projection_matrix[8] = (right + left) / (right - left)
         self.projection_matrix[9] = (top + bottom) / (top - bottom)
         self.projection_matrix[10] = -(self.far_distance + self.near_distance) / (
-                    self.far_distance - self.near_distance)
+                self.far_distance - self.near_distance)
         self.projection_matrix[11] = -1.0
         self.projection_matrix[14] = -2.0 * self.far_distance * self.near_distance / (
-                    self.far_distance - self.near_distance)
+                self.far_distance - self.near_distance)
         glUniformMatrix4fv(self.projection_matrix_id, 1, False, self.projection_matrix)
 
         # setup modelview matrix
@@ -209,9 +224,9 @@ class RenderTriangle(Render):
     def divide_polygons(self):
         def calculate_mid_vert(vert1, vert2):
             mid = np.array([(vert1[0] + vert2[0]) / 2, (vert1[1] + vert2[1]) / 2, (vert1[2] + vert2[2]) / 2],
-                            dtype=float32)
-            distance_vert = math.sqrt(vert1[0]*vert1[0] + vert1[1]*vert1[1] + vert1[2]*vert1[2])
-            distance_mid = math.sqrt(mid[0]*mid[0] + mid[1]*mid[1] + mid[2]*mid[2])
+                           dtype=float32)
+            distance_vert = math.sqrt(vert1[0] * vert1[0] + vert1[1] * vert1[1] + vert1[2] * vert1[2])
+            distance_mid = math.sqrt(mid[0] * mid[0] + mid[1] * mid[1] + mid[2] * mid[2])
             mid = mid * distance_vert / distance_mid
             return mid
 
@@ -229,9 +244,9 @@ class RenderTriangle(Render):
             mid1 = calculate_mid_vert(vert1, vert2)
             mid2 = calculate_mid_vert(vert2, vert3)
             mid3 = calculate_mid_vert(vert1, vert3)
-            mid_index1 = len(self.vertex_list)//3
-            mid_index2 = len(self.vertex_list)//3 + 1
-            mid_index3 = len(self.vertex_list)//3 + 2
+            mid_index1 = len(self.vertex_list) // 3
+            mid_index2 = len(self.vertex_list) // 3 + 1
+            mid_index3 = len(self.vertex_list) // 3 + 2
             self.vertex_list = np.concatenate((self.vertex_list, mid1, mid2, mid3))
             self.index_list = np.concatenate((
                 self.index_list,
@@ -243,6 +258,7 @@ class RenderTriangle(Render):
             ))
 
         self.generate_color()
+        self.calculate_tex_coords()
 
         # create buffer object for indices
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.vbo_indices)
@@ -258,6 +274,35 @@ class RenderTriangle(Render):
         glBufferData(GL_ARRAY_BUFFER, self.color_data.size * self.color_data.itemsize, self.color_data, GL_STATIC_DRAW)
 
     def generate_color(self):
-        num_polygons: int = len(self.index_list) // 3
-        self.color_data = np.array([random() for _ in range(num_polygons * 4)], dtype=float32)
-        self.color_data[3::4] = [1.0] * num_polygons
+        num_vertices: int = len(self.vertex_list)
+        self.color_data = np.array([random() for _ in range(num_vertices * 4)], dtype=float32)
+        self.color_data[3::4] = [1.0] * num_vertices
+
+    def load_and_set_texture(self):
+        im = Image.open(os.path.join(os.path.dirname(__file__), 'assets/erde.png'))
+        width, height, img_data = im.size[0], im.size[1], im.tobytes("raw", "RGB", 0, -1)
+
+        self.texture = glGenTextures(1)
+        glBindTexture(GL_TEXTURE_2D, self.texture)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT)
+        glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT)
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, img_data)
+        glGenerateMipmap(GL_TEXTURE_2D)
+
+    def calculate_tex_coords(self):
+        # coord calculation is based on:
+        # https://gamedev.stackexchange.com/questions/114412/how-to-get-uv-coordinates-for-sphere-cylindrical-projection/114416#114416
+
+        # calculate distance from center of sphere
+        radius = math.sqrt(self.vertex_list[0] * self.vertex_list[0] +
+                           self.vertex_list[1] * self.vertex_list[1] +
+                           self.vertex_list[2] * self.vertex_list[2])
+        # normalize all vertice coords
+        self.texture_coords = np.copy(self.vertex_list) / radius
+        # calculate y coord for texture
+        self.texture_coords[1::3] = [y * 0.5 + 0.5 for y in self.texture_coords[1::3]]
+        # calculate x coord for texture
+        self.texture_coords[0::3] = [math.atan2(x, z) / (2 * math.pi) + 0.5 for x, z in
+                                     zip(self.texture_coords[0::3], self.texture_coords[2::3])]
+        # remove z coord
+        self.texture_coords = np.delete(self.texture_coords, np.arange(2, self.texture_coords.size, 3))
