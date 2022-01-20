@@ -46,7 +46,7 @@ def main():
             renderer.trans_z(1.0)
         if key == glfw.KEY_KP_SUBTRACT:
             renderer.trans_z(-1.0)
-        if key == glfw.KEY_SPACE:
+        if action == glfw.PRESS and key == glfw.KEY_SPACE:
             renderer.divide_polygons()
 
         renderer.render_camera()
